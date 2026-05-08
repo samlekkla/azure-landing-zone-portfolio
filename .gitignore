@@ -1,0 +1,20 @@
+# Bicep build artifacts
+*.bicep.json
+
+# Azure CLI
+.azure/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets (defensive — we don't have any, but never commit if accidentally created)
+*.pfx
+*.pem
+*.key
+.env
+.env.*
