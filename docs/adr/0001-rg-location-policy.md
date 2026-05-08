@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-05-08
-**Deciders:** <your-handle>
+**Deciders:** samlekkla
 
 ## Context
 
@@ -38,7 +38,7 @@ Defer the second policy ("Allowed locations for resource groups",
 
 Add the second policy assignment to `policy-assignments.bicep`:
 
-```bicep
+\`\`\`bicep
 var rgLocationPolicyId = '/providers/Microsoft.Authorization/policyDefinitions/e765b5de-1225-4ba3-bd56-1ac6695af988'
 
 resource rgLocationsAssignment 'Microsoft.Authorization/policyAssignments@2024-04-01' = {
@@ -52,4 +52,4 @@ resource rgLocationsAssignment 'Microsoft.Authorization/policyAssignments@2024-0
     enforcementMode: 'Default'
   }
 }
-```
+\`\`\`
