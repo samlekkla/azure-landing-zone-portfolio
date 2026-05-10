@@ -1,7 +1,7 @@
 // ============================================================================
 // Module: log-analytics
 // Purpose: Central Log Analytics workspace for all Aurora diagnostic logs.
-// Owner: <your-handle>
+// Owner: samlekkla
 // Last reviewed: 2026-05-08
 // Cost impact: free (5 GB ingestion/mo + 31-day retention free tier)
 // ============================================================================

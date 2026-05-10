@@ -1,7 +1,7 @@
 // ============================================================================
 // Module: policy-assignments
 // Purpose: Assigns built-in policies to enforce allowed locations and required tags.
-// Owner: <your-handle>
+// Owner: samlekkla
 // Last reviewed: 2026-05-08
 // Cost impact: free (Azure Policy is always free)
 // ============================================================================

@@ -1,7 +1,7 @@
 // ============================================================================
 // Module: budget
 // Purpose: Subscription-scoped Cost Management budget with three notifications.
-// Owner: <your-handle>
+// Owner: samlekkla
 // Last reviewed: 2026-05-08
 // Cost impact: free (Cost Management is always free)
 // ============================================================================

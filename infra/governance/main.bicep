@@ -2,7 +2,7 @@
 // Module: main (governance)
 // Purpose: Bootstraps governance RG, action group, subscription budget,
 //          policies, observability RG and Log Analytics workspace.
-// Owner: <your-handle>
+// Owner: samlekkla
 // Last reviewed: 2026-05-08
 // Cost impact: free
 // ============================================================================

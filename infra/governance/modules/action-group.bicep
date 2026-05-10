@@ -1,7 +1,7 @@
 // ============================================================================
 // Module: action-group
 // Purpose: Action group that delivers budget and monitor alerts to the project owner.
-// Owner: <your-handle>
+// Owner: samlekkla
 // Last reviewed: 2026-05-08
 // Cost impact: free (notifications ~$1/1000 emails — negligible for this project)
 // ============================================================================
