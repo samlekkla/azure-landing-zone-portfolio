@@ -28,16 +28,5 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Bicep what-if — network
-        run: |
-          az deployment sub what-if \
-            --location swedencentral \
-            --template-file infra/network/main.bicep \
-            --parameters infra/network/dev.bicepparam
-
-      - name: Bicep deploy — network
-        run: |
-          az deployment sub create \
-            --location swedencentral \
-            --template-file infra/network/main.bicep \
-            --parameters infra/network/dev.bicepparam
+      - name: Placeholder — workload deploys added here in Week 3
+        run: echo "OIDC pipeline working. Workload steps coming soon."
