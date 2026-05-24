@@ -1,0 +1,1881 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.43.1.21952",
+      "templateHash": "680663837501824372"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "swedencentral",
+      "allowedValues": [
+        "swedencentral",
+        "westeurope"
+      ],
+      "metadata": {
+        "description": "Azure region for all resources."
+      }
+    },
+    "instance": {
+      "type": "string",
+      "defaultValue": "001",
+      "minLength": 3,
+      "maxLength": 3,
+      "metadata": {
+        "description": "Three-digit instance counter, zero-padded."
+      }
+    },
+    "ownerEmail": {
+      "type": "string",
+      "defaultValue": "you@example.com",
+      "metadata": {
+        "description": "Your email address — used in Owner tag."
+      }
+    },
+    "homeIpAddress": {
+      "type": "string",
+      "metadata": {
+        "description": "Home IP address allowed through the dev Storage Account firewall. Do not commit real IPs."
+      }
+    },
+    "azureAdAdminObjectId": {
+      "type": "string",
+      "metadata": {
+        "description": "Object ID of the Entra user or group to set as SQL Active Directory admin."
+      }
+    }
+  },
+  "variables": {
+    "subId": "[subscription().subscriptionId]",
+    "logAnalyticsId": "[format('/subscriptions/{0}/resourceGroups/nx-shared-obs-rg/providers/Microsoft.OperationalInsights/workspaces/nx-shared-obs-swc-log-001', variables('subId'))]",
+    "snetPeId": "[format('/subscriptions/{0}/resourceGroups/nx-prod-net-rg/providers/Microsoft.Network/virtualNetworks/nx-prod-net-swc-vnet-001/subnets/snet-pe', variables('subId'))]",
+    "hubVnetId": "[format('/subscriptions/{0}/resourceGroups/nx-shared-net-rg/providers/Microsoft.Network/virtualNetworks/nx-shared-net-swc-vnet-001', variables('subId'))]",
+    "devVnetId": "[format('/subscriptions/{0}/resourceGroups/nx-dev-net-rg/providers/Microsoft.Network/virtualNetworks/nx-dev-net-swc-vnet-001', variables('subId'))]",
+    "prodVnetId": "[format('/subscriptions/{0}/resourceGroups/nx-prod-net-rg/providers/Microsoft.Network/virtualNetworks/nx-prod-net-swc-vnet-001', variables('subId'))]",
+    "sharedTags": {
+      "CostCenter": "aurora-portfolio",
+      "Owner": "[parameters('ownerEmail')]"
+    },
+    "sqlDnsZoneId": "[format('/subscriptions/{0}/resourceGroups/nx-shared-net-rg/providers/Microsoft.Network/privateDnsZones/privatelink.database.windows.net', variables('subId'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-dns-privatelink-blob-core-windows-net",
+      "resourceGroup": "nx-shared-net-rg",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "zoneName": {
+            "value": "privatelink.blob.core.windows.net"
+          },
+          "vnetIds": {
+            "value": [
+              "[variables('hubVnetId')]",
+              "[variables('devVnetId')]",
+              "[variables('prodVnetId')]"
+            ]
+          },
+          "tags": {
+            "value": {
+              "Environment": "shared",
+              "Workload": "net",
+              "CostCenter": "aurora-portfolio",
+              "Owner": "[parameters('ownerEmail')]"
+            }
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.1.21952",
+              "templateHash": "5884199898208778306"
+            }
+          },
+          "parameters": {
+            "zoneName": {
+              "type": "string"
+            },
+            "vnetIds": {
+              "type": "array"
+            },
+            "tags": {
+              "type": "object"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/privateDnsZones",
+              "apiVersion": "2024-06-01",
+              "name": "[parameters('zoneName')]",
+              "location": "global",
+              "tags": "[parameters('tags')]"
+            },
+            {
+              "copy": {
+                "name": "links",
+                "count": "[length(parameters('vnetIds'))]"
+              },
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', parameters('zoneName'), format('link-{0}', copyIndex()))]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "virtualNetwork": {
+                  "id": "[parameters('vnetIds')[copyIndex()]]"
+                },
+                "registrationEnabled": false
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateDnsZones', parameters('zoneName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/privateDnsZones', parameters('zoneName'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('zoneName')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-dev-sa",
+      "resourceGroup": "nx-dev-data-rg",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "environmentName": {
+            "value": "dev"
+          },
+          "workload": {
+            "value": "data"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "instance": {
+            "value": "[parameters('instance')]"
+          },
+          "publicNetworkAccess": {
+            "value": "Enabled"
+          },
+          "allowedIpAddress": {
+            "value": "[parameters('homeIpAddress')]"
+          },
+          "logAnalyticsWorkspaceId": {
+            "value": "[variables('logAnalyticsId')]"
+          },
+          "tags": {
+            "value": "[union(variables('sharedTags'), createObject('Environment', 'dev', 'Workload', 'data'))]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.1.21952",
+              "templateHash": "9578955253564539333"
+            }
+          },
+          "parameters": {
+            "environmentName": {
+              "type": "string",
+              "allowedValues": [
+                "dev",
+                "prod",
+                "shared"
+              ],
+              "metadata": {
+                "description": "Environment short name."
+              }
+            },
+            "workload": {
+              "type": "string",
+              "allowedValues": [
+                "web",
+                "api",
+                "data",
+                "ai",
+                "obs",
+                "net",
+                "sec",
+                "gov"
+              ],
+              "metadata": {
+                "description": "Workload short name."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "swedencentral",
+              "allowedValues": [
+                "swedencentral",
+                "westeurope"
+              ],
+              "metadata": {
+                "description": "Azure region."
+              }
+            },
+            "instance": {
+              "type": "string",
+              "defaultValue": "001",
+              "minLength": 3,
+              "maxLength": 3,
+              "metadata": {
+                "description": "Three-digit instance counter, zero-padded."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Mandatory tags applied to all resources."
+              }
+            },
+            "publicNetworkAccess": {
+              "type": "string",
+              "defaultValue": "Disabled",
+              "allowedValues": [
+                "Enabled",
+                "Disabled"
+              ],
+              "metadata": {
+                "description": "Whether to allow public network access."
+              }
+            },
+            "allowedIpAddress": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Home IP address to allow when publicNetworkAccess is Enabled. Ignored when Disabled."
+              }
+            },
+            "logAnalyticsWorkspaceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the shared Log Analytics workspace."
+              }
+            }
+          },
+          "variables": {
+            "regionShort": "[if(equals(parameters('location'), 'swedencentral'), 'swc', 'weu')]",
+            "saName": "[format('nx{0}{1}{2}st{3}', parameters('environmentName'), parameters('workload'), variables('regionShort'), parameters('instance'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Storage/storageAccounts",
+              "apiVersion": "2023-05-01",
+              "name": "[variables('saName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard_LRS"
+              },
+              "kind": "StorageV2",
+              "properties": {
+                "accessTier": "Hot",
+                "minimumTlsVersion": "TLS1_2",
+                "allowBlobPublicAccess": false,
+                "allowSharedKeyAccess": false,
+                "publicNetworkAccess": "[parameters('publicNetworkAccess')]",
+                "networkAcls": {
+                  "bypass": "AzureServices",
+                  "defaultAction": "Deny",
+                  "ipRules": "[if(and(equals(parameters('publicNetworkAccess'), 'Enabled'), not(empty(parameters('allowedIpAddress')))), createArray(createObject('action', 'Allow', 'value', parameters('allowedIpAddress'))), createArray())]",
+                  "virtualNetworkRules": []
+                }
+              }
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/blobServices",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}', variables('saName'), 'default')]",
+              "properties": {
+                "deleteRetentionPolicy": {
+                  "enabled": true,
+                  "days": 7
+                },
+                "containerDeleteRetentionPolicy": {
+                  "enabled": true,
+                  "days": 7
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('saName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Insights/diagnosticSettings",
+              "apiVersion": "2021-05-01-preview",
+              "scope": "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('saName'), 'default')]",
+              "name": "[format('{0}-blob-diag', variables('saName'))]",
+              "properties": {
+                "workspaceId": "[parameters('logAnalyticsWorkspaceId')]",
+                "logs": [
+                  {
+                    "category": "StorageRead",
+                    "enabled": true
+                  },
+                  {
+                    "category": "StorageWrite",
+                    "enabled": true
+                  },
+                  {
+                    "category": "StorageDelete",
+                    "enabled": true
+                  }
+                ],
+                "metrics": [
+                  {
+                    "category": "AllMetrics",
+                    "enabled": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('saName'), 'default')]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Storage/storageAccounts', variables('saName'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[variables('saName')]"
+            },
+            "primaryBlobEndpoint": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Storage/storageAccounts', variables('saName')), '2023-05-01').primaryEndpoints.blob]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-prod-sa",
+      "resourceGroup": "nx-prod-data-rg",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "environmentName": {
+            "value": "prod"
+          },
+          "workload": {
+            "value": "data"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "instance": {
+            "value": "[parameters('instance')]"
+          },
+          "publicNetworkAccess": {
+            "value": "Disabled"
+          },
+          "allowedIpAddress": {
+            "value": ""
+          },
+          "logAnalyticsWorkspaceId": {
+            "value": "[variables('logAnalyticsId')]"
+          },
+          "tags": {
+            "value": "[union(variables('sharedTags'), createObject('Environment', 'prod', 'Workload', 'data'))]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.1.21952",
+              "templateHash": "9578955253564539333"
+            }
+          },
+          "parameters": {
+            "environmentName": {
+              "type": "string",
+              "allowedValues": [
+                "dev",
+                "prod",
+                "shared"
+              ],
+              "metadata": {
+                "description": "Environment short name."
+              }
+            },
+            "workload": {
+              "type": "string",
+              "allowedValues": [
+                "web",
+                "api",
+                "data",
+                "ai",
+                "obs",
+                "net",
+                "sec",
+                "gov"
+              ],
+              "metadata": {
+                "description": "Workload short name."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "swedencentral",
+              "allowedValues": [
+                "swedencentral",
+                "westeurope"
+              ],
+              "metadata": {
+                "description": "Azure region."
+              }
+            },
+            "instance": {
+              "type": "string",
+              "defaultValue": "001",
+              "minLength": 3,
+              "maxLength": 3,
+              "metadata": {
+                "description": "Three-digit instance counter, zero-padded."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Mandatory tags applied to all resources."
+              }
+            },
+            "publicNetworkAccess": {
+              "type": "string",
+              "defaultValue": "Disabled",
+              "allowedValues": [
+                "Enabled",
+                "Disabled"
+              ],
+              "metadata": {
+                "description": "Whether to allow public network access."
+              }
+            },
+            "allowedIpAddress": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Home IP address to allow when publicNetworkAccess is Enabled. Ignored when Disabled."
+              }
+            },
+            "logAnalyticsWorkspaceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the shared Log Analytics workspace."
+              }
+            }
+          },
+          "variables": {
+            "regionShort": "[if(equals(parameters('location'), 'swedencentral'), 'swc', 'weu')]",
+            "saName": "[format('nx{0}{1}{2}st{3}', parameters('environmentName'), parameters('workload'), variables('regionShort'), parameters('instance'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Storage/storageAccounts",
+              "apiVersion": "2023-05-01",
+              "name": "[variables('saName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard_LRS"
+              },
+              "kind": "StorageV2",
+              "properties": {
+                "accessTier": "Hot",
+                "minimumTlsVersion": "TLS1_2",
+                "allowBlobPublicAccess": false,
+                "allowSharedKeyAccess": false,
+                "publicNetworkAccess": "[parameters('publicNetworkAccess')]",
+                "networkAcls": {
+                  "bypass": "AzureServices",
+                  "defaultAction": "Deny",
+                  "ipRules": "[if(and(equals(parameters('publicNetworkAccess'), 'Enabled'), not(empty(parameters('allowedIpAddress')))), createArray(createObject('action', 'Allow', 'value', parameters('allowedIpAddress'))), createArray())]",
+                  "virtualNetworkRules": []
+                }
+              }
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/blobServices",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}', variables('saName'), 'default')]",
+              "properties": {
+                "deleteRetentionPolicy": {
+                  "enabled": true,
+                  "days": 7
+                },
+                "containerDeleteRetentionPolicy": {
+                  "enabled": true,
+                  "days": 7
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('saName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Insights/diagnosticSettings",
+              "apiVersion": "2021-05-01-preview",
+              "scope": "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('saName'), 'default')]",
+              "name": "[format('{0}-blob-diag', variables('saName'))]",
+              "properties": {
+                "workspaceId": "[parameters('logAnalyticsWorkspaceId')]",
+                "logs": [
+                  {
+                    "category": "StorageRead",
+                    "enabled": true
+                  },
+                  {
+                    "category": "StorageWrite",
+                    "enabled": true
+                  },
+                  {
+                    "category": "StorageDelete",
+                    "enabled": true
+                  }
+                ],
+                "metrics": [
+                  {
+                    "category": "AllMetrics",
+                    "enabled": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('saName'), 'default')]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Storage/storageAccounts', variables('saName'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[variables('saName')]"
+            },
+            "primaryBlobEndpoint": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Storage/storageAccounts', variables('saName')), '2023-05-01').primaryEndpoints.blob]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-prod-sa-pe",
+      "resourceGroup": "nx-prod-data-rg",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "environmentName": {
+            "value": "prod"
+          },
+          "workload": {
+            "value": "data"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "instance": {
+            "value": "[parameters('instance')]"
+          },
+          "serviceId": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-prod-data-rg'), 'Microsoft.Resources/deployments', 'deploy-prod-sa'), '2025-04-01').outputs.id.value]"
+          },
+          "serviceGroupId": {
+            "value": "blob"
+          },
+          "subnetId": {
+            "value": "[variables('snetPeId')]"
+          },
+          "privateDnsZoneId": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-shared-net-rg'), 'Microsoft.Resources/deployments', 'deploy-dns-privatelink-blob-core-windows-net'), '2025-04-01').outputs.id.value]"
+          },
+          "logAnalyticsWorkspaceId": {
+            "value": "[variables('logAnalyticsId')]"
+          },
+          "tags": {
+            "value": "[union(variables('sharedTags'), createObject('Environment', 'prod', 'Workload', 'data'))]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.1.21952",
+              "templateHash": "7943260212163829512"
+            }
+          },
+          "parameters": {
+            "environmentName": {
+              "type": "string",
+              "allowedValues": [
+                "dev",
+                "prod",
+                "shared"
+              ],
+              "metadata": {
+                "description": "Environment short name."
+              }
+            },
+            "workload": {
+              "type": "string",
+              "allowedValues": [
+                "web",
+                "api",
+                "data",
+                "ai",
+                "obs",
+                "net",
+                "sec",
+                "gov"
+              ],
+              "metadata": {
+                "description": "Workload short name."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "swedencentral",
+              "allowedValues": [
+                "swedencentral",
+                "westeurope"
+              ],
+              "metadata": {
+                "description": "Azure region."
+              }
+            },
+            "instance": {
+              "type": "string",
+              "defaultValue": "001",
+              "minLength": 3,
+              "maxLength": 3,
+              "metadata": {
+                "description": "Three-digit instance counter, zero-padded."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Mandatory tags applied to all resources."
+              }
+            },
+            "serviceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the service to connect."
+              }
+            },
+            "serviceGroupId": {
+              "type": "string",
+              "metadata": {
+                "description": "Private Link subresource group ID (e.g. blob for Storage, vault for Key Vault)."
+              }
+            },
+            "subnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the subnet for the private endpoint."
+              }
+            },
+            "privateDnsZoneId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the Private DNS Zone to link."
+              }
+            },
+            "logAnalyticsWorkspaceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the shared Log Analytics workspace (reserved for future use — PEs do not support diagnostic settings)."
+              }
+            }
+          },
+          "variables": {
+            "orgPrefix": "nx",
+            "regionShort": "[if(equals(parameters('location'), 'swedencentral'), 'swc', 'weu')]",
+            "peName": "[format('{0}-{1}-data-{2}-pe-{3}', variables('orgPrefix'), parameters('environmentName'), variables('regionShort'), parameters('instance'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/privateEndpoints",
+              "apiVersion": "2024-05-01",
+              "name": "[variables('peName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "subnet": {
+                  "id": "[parameters('subnetId')]"
+                },
+                "privateLinkServiceConnections": [
+                  {
+                    "name": "[variables('peName')]",
+                    "properties": {
+                      "privateLinkServiceId": "[parameters('serviceId')]",
+                      "groupIds": [
+                        "[parameters('serviceGroupId')]"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', variables('peName'), 'default')]",
+              "properties": {
+                "privateDnsZoneConfigs": [
+                  {
+                    "name": "config1",
+                    "properties": {
+                      "privateDnsZoneId": "[parameters('privateDnsZoneId')]"
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateEndpoints', variables('peName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/privateEndpoints', variables('peName'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[variables('peName')]"
+            },
+            "customDnsConfigs": {
+              "type": "array",
+              "value": "[reference(resourceId('Microsoft.Network/privateEndpoints', variables('peName')), '2024-05-01').customDnsConfigs]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-shared-net-rg'), 'Microsoft.Resources/deployments', 'deploy-dns-privatelink-blob-core-windows-net')]",
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-prod-data-rg'), 'Microsoft.Resources/deployments', 'deploy-prod-sa')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-dev-sql",
+      "resourceGroup": "nx-dev-data-rg",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "environmentName": {
+            "value": "dev"
+          },
+          "workload": {
+            "value": "data"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "instance": {
+            "value": "[parameters('instance')]"
+          },
+          "publicNetworkAccess": {
+            "value": "Enabled"
+          },
+          "allowedIpAddress": {
+            "value": "[parameters('homeIpAddress')]"
+          },
+          "azureAdAdminObjectId": {
+            "value": "[parameters('azureAdAdminObjectId')]"
+          },
+          "logAnalyticsWorkspaceId": {
+            "value": "[variables('logAnalyticsId')]"
+          },
+          "tags": {
+            "value": "[union(variables('sharedTags'), createObject('Environment', 'dev', 'Workload', 'data'))]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.1.21952",
+              "templateHash": "16246691685259449316"
+            }
+          },
+          "parameters": {
+            "environmentName": {
+              "type": "string",
+              "allowedValues": [
+                "dev",
+                "prod",
+                "shared"
+              ],
+              "metadata": {
+                "description": "Environment short name."
+              }
+            },
+            "workload": {
+              "type": "string",
+              "allowedValues": [
+                "web",
+                "api",
+                "data",
+                "ai",
+                "obs",
+                "net",
+                "sec",
+                "gov"
+              ],
+              "metadata": {
+                "description": "Workload short name."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "swedencentral",
+              "allowedValues": [
+                "swedencentral",
+                "westeurope"
+              ],
+              "metadata": {
+                "description": "Azure region."
+              }
+            },
+            "instance": {
+              "type": "string",
+              "defaultValue": "001",
+              "minLength": 3,
+              "maxLength": 3,
+              "metadata": {
+                "description": "Three-digit instance counter, zero-padded."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Mandatory tags applied to all resources."
+              }
+            },
+            "publicNetworkAccess": {
+              "type": "string",
+              "defaultValue": "Disabled",
+              "allowedValues": [
+                "Enabled",
+                "Disabled"
+              ],
+              "metadata": {
+                "description": "Whether to allow public network access."
+              }
+            },
+            "allowedIpAddress": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Home IP address to allow when publicNetworkAccess is Enabled. Ignored when Disabled."
+              }
+            },
+            "azureAdAdminObjectId": {
+              "type": "string",
+              "metadata": {
+                "description": "Object ID of the Entra user or group to set as SQL Active Directory admin."
+              }
+            },
+            "logAnalyticsWorkspaceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the shared Log Analytics workspace."
+              }
+            }
+          },
+          "variables": {
+            "orgPrefix": "nx",
+            "regionShort": "[if(equals(parameters('location'), 'swedencentral'), 'swc', 'weu')]",
+            "serverName": "[format('{0}-{1}-{2}-{3}-sql-{4}', variables('orgPrefix'), parameters('environmentName'), parameters('workload'), variables('regionShort'), parameters('instance'))]",
+            "dbName": "nordlux-db"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Sql/servers",
+              "apiVersion": "2021-11-01",
+              "name": "[variables('serverName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "administrators": {
+                  "administratorType": "ActiveDirectory",
+                  "azureADOnlyAuthentication": true,
+                  "login": "cloud-admin",
+                  "sid": "[parameters('azureAdAdminObjectId')]",
+                  "tenantId": "[subscription().tenantId]"
+                },
+                "minimalTlsVersion": "1.2",
+                "publicNetworkAccess": "[parameters('publicNetworkAccess')]"
+              }
+            },
+            {
+              "condition": "[equals(parameters('publicNetworkAccess'), 'Enabled')]",
+              "type": "Microsoft.Sql/servers/firewallRules",
+              "apiVersion": "2021-11-01",
+              "name": "[format('{0}/{1}', variables('serverName'), 'AllowAzureServices')]",
+              "properties": {
+                "startIpAddress": "0.0.0.0",
+                "endIpAddress": "0.0.0.0"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Sql/servers', variables('serverName'))]"
+              ]
+            },
+            {
+              "condition": "[and(equals(parameters('publicNetworkAccess'), 'Enabled'), not(empty(parameters('allowedIpAddress'))))]",
+              "type": "Microsoft.Sql/servers/firewallRules",
+              "apiVersion": "2021-11-01",
+              "name": "[format('{0}/{1}', variables('serverName'), 'AllowHomeIp')]",
+              "properties": {
+                "startIpAddress": "[parameters('allowedIpAddress')]",
+                "endIpAddress": "[parameters('allowedIpAddress')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Sql/servers', variables('serverName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Sql/servers/databases",
+              "apiVersion": "2021-11-01",
+              "name": "[format('{0}/{1}', variables('serverName'), variables('dbName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "GP_S_Gen5_1"
+              },
+              "properties": {
+                "autoPauseDelay": 60,
+                "minCapacity": "[json('0.5')]",
+                "maxSizeBytes": 34359738368,
+                "zoneRedundant": false,
+                "requestedBackupStorageRedundancy": "Local"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Sql/servers', variables('serverName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Insights/diagnosticSettings",
+              "apiVersion": "2021-05-01-preview",
+              "scope": "[resourceId('Microsoft.Sql/servers', variables('serverName'))]",
+              "name": "[format('{0}-diag', variables('serverName'))]",
+              "properties": {
+                "workspaceId": "[parameters('logAnalyticsWorkspaceId')]",
+                "logs": [
+                  {
+                    "category": "SQLSecurityAuditEvents",
+                    "enabled": true
+                  }
+                ],
+                "metrics": [
+                  {
+                    "category": "AllMetrics",
+                    "enabled": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Sql/servers', variables('serverName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Insights/diagnosticSettings",
+              "apiVersion": "2021-05-01-preview",
+              "scope": "[resourceId('Microsoft.Sql/servers/databases', variables('serverName'), variables('dbName'))]",
+              "name": "[format('{0}-diag', variables('dbName'))]",
+              "properties": {
+                "workspaceId": "[parameters('logAnalyticsWorkspaceId')]",
+                "logs": [
+                  {
+                    "category": "Errors",
+                    "enabled": true
+                  },
+                  {
+                    "category": "QueryStoreRuntimeStatistics",
+                    "enabled": true
+                  }
+                ],
+                "metrics": [
+                  {
+                    "category": "Basic",
+                    "enabled": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Sql/servers/databases', variables('serverName'), variables('dbName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "serverId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Sql/servers', variables('serverName'))]"
+            },
+            "serverName": {
+              "type": "string",
+              "value": "[variables('serverName')]"
+            },
+            "serverFqdn": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Sql/servers', variables('serverName')), '2021-11-01').fullyQualifiedDomainName]"
+            },
+            "databaseName": {
+              "type": "string",
+              "value": "[variables('dbName')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-prod-sql",
+      "resourceGroup": "nx-prod-data-rg",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "environmentName": {
+            "value": "prod"
+          },
+          "workload": {
+            "value": "data"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "instance": {
+            "value": "[parameters('instance')]"
+          },
+          "publicNetworkAccess": {
+            "value": "Disabled"
+          },
+          "allowedIpAddress": {
+            "value": ""
+          },
+          "azureAdAdminObjectId": {
+            "value": "[parameters('azureAdAdminObjectId')]"
+          },
+          "logAnalyticsWorkspaceId": {
+            "value": "[variables('logAnalyticsId')]"
+          },
+          "tags": {
+            "value": "[union(variables('sharedTags'), createObject('Environment', 'prod', 'Workload', 'data'))]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.1.21952",
+              "templateHash": "16246691685259449316"
+            }
+          },
+          "parameters": {
+            "environmentName": {
+              "type": "string",
+              "allowedValues": [
+                "dev",
+                "prod",
+                "shared"
+              ],
+              "metadata": {
+                "description": "Environment short name."
+              }
+            },
+            "workload": {
+              "type": "string",
+              "allowedValues": [
+                "web",
+                "api",
+                "data",
+                "ai",
+                "obs",
+                "net",
+                "sec",
+                "gov"
+              ],
+              "metadata": {
+                "description": "Workload short name."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "swedencentral",
+              "allowedValues": [
+                "swedencentral",
+                "westeurope"
+              ],
+              "metadata": {
+                "description": "Azure region."
+              }
+            },
+            "instance": {
+              "type": "string",
+              "defaultValue": "001",
+              "minLength": 3,
+              "maxLength": 3,
+              "metadata": {
+                "description": "Three-digit instance counter, zero-padded."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Mandatory tags applied to all resources."
+              }
+            },
+            "publicNetworkAccess": {
+              "type": "string",
+              "defaultValue": "Disabled",
+              "allowedValues": [
+                "Enabled",
+                "Disabled"
+              ],
+              "metadata": {
+                "description": "Whether to allow public network access."
+              }
+            },
+            "allowedIpAddress": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Home IP address to allow when publicNetworkAccess is Enabled. Ignored when Disabled."
+              }
+            },
+            "azureAdAdminObjectId": {
+              "type": "string",
+              "metadata": {
+                "description": "Object ID of the Entra user or group to set as SQL Active Directory admin."
+              }
+            },
+            "logAnalyticsWorkspaceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the shared Log Analytics workspace."
+              }
+            }
+          },
+          "variables": {
+            "orgPrefix": "nx",
+            "regionShort": "[if(equals(parameters('location'), 'swedencentral'), 'swc', 'weu')]",
+            "serverName": "[format('{0}-{1}-{2}-{3}-sql-{4}', variables('orgPrefix'), parameters('environmentName'), parameters('workload'), variables('regionShort'), parameters('instance'))]",
+            "dbName": "nordlux-db"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Sql/servers",
+              "apiVersion": "2021-11-01",
+              "name": "[variables('serverName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "administrators": {
+                  "administratorType": "ActiveDirectory",
+                  "azureADOnlyAuthentication": true,
+                  "login": "cloud-admin",
+                  "sid": "[parameters('azureAdAdminObjectId')]",
+                  "tenantId": "[subscription().tenantId]"
+                },
+                "minimalTlsVersion": "1.2",
+                "publicNetworkAccess": "[parameters('publicNetworkAccess')]"
+              }
+            },
+            {
+              "condition": "[equals(parameters('publicNetworkAccess'), 'Enabled')]",
+              "type": "Microsoft.Sql/servers/firewallRules",
+              "apiVersion": "2021-11-01",
+              "name": "[format('{0}/{1}', variables('serverName'), 'AllowAzureServices')]",
+              "properties": {
+                "startIpAddress": "0.0.0.0",
+                "endIpAddress": "0.0.0.0"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Sql/servers', variables('serverName'))]"
+              ]
+            },
+            {
+              "condition": "[and(equals(parameters('publicNetworkAccess'), 'Enabled'), not(empty(parameters('allowedIpAddress'))))]",
+              "type": "Microsoft.Sql/servers/firewallRules",
+              "apiVersion": "2021-11-01",
+              "name": "[format('{0}/{1}', variables('serverName'), 'AllowHomeIp')]",
+              "properties": {
+                "startIpAddress": "[parameters('allowedIpAddress')]",
+                "endIpAddress": "[parameters('allowedIpAddress')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Sql/servers', variables('serverName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Sql/servers/databases",
+              "apiVersion": "2021-11-01",
+              "name": "[format('{0}/{1}', variables('serverName'), variables('dbName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "GP_S_Gen5_1"
+              },
+              "properties": {
+                "autoPauseDelay": 60,
+                "minCapacity": "[json('0.5')]",
+                "maxSizeBytes": 34359738368,
+                "zoneRedundant": false,
+                "requestedBackupStorageRedundancy": "Local"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Sql/servers', variables('serverName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Insights/diagnosticSettings",
+              "apiVersion": "2021-05-01-preview",
+              "scope": "[resourceId('Microsoft.Sql/servers', variables('serverName'))]",
+              "name": "[format('{0}-diag', variables('serverName'))]",
+              "properties": {
+                "workspaceId": "[parameters('logAnalyticsWorkspaceId')]",
+                "logs": [
+                  {
+                    "category": "SQLSecurityAuditEvents",
+                    "enabled": true
+                  }
+                ],
+                "metrics": [
+                  {
+                    "category": "AllMetrics",
+                    "enabled": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Sql/servers', variables('serverName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Insights/diagnosticSettings",
+              "apiVersion": "2021-05-01-preview",
+              "scope": "[resourceId('Microsoft.Sql/servers/databases', variables('serverName'), variables('dbName'))]",
+              "name": "[format('{0}-diag', variables('dbName'))]",
+              "properties": {
+                "workspaceId": "[parameters('logAnalyticsWorkspaceId')]",
+                "logs": [
+                  {
+                    "category": "Errors",
+                    "enabled": true
+                  },
+                  {
+                    "category": "QueryStoreRuntimeStatistics",
+                    "enabled": true
+                  }
+                ],
+                "metrics": [
+                  {
+                    "category": "Basic",
+                    "enabled": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Sql/servers/databases', variables('serverName'), variables('dbName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "serverId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Sql/servers', variables('serverName'))]"
+            },
+            "serverName": {
+              "type": "string",
+              "value": "[variables('serverName')]"
+            },
+            "serverFqdn": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Sql/servers', variables('serverName')), '2021-11-01').fullyQualifiedDomainName]"
+            },
+            "databaseName": {
+              "type": "string",
+              "value": "[variables('dbName')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-prod-sql-pe",
+      "resourceGroup": "nx-prod-data-rg",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "environmentName": {
+            "value": "prod"
+          },
+          "workload": {
+            "value": "data"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "instance": {
+            "value": "002"
+          },
+          "serviceId": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-prod-data-rg'), 'Microsoft.Resources/deployments', 'deploy-prod-sql'), '2025-04-01').outputs.serverId.value]"
+          },
+          "serviceGroupId": {
+            "value": "sqlServer"
+          },
+          "subnetId": {
+            "value": "[variables('snetPeId')]"
+          },
+          "privateDnsZoneId": {
+            "value": "[variables('sqlDnsZoneId')]"
+          },
+          "logAnalyticsWorkspaceId": {
+            "value": "[variables('logAnalyticsId')]"
+          },
+          "tags": {
+            "value": "[union(variables('sharedTags'), createObject('Environment', 'prod', 'Workload', 'data'))]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.1.21952",
+              "templateHash": "7943260212163829512"
+            }
+          },
+          "parameters": {
+            "environmentName": {
+              "type": "string",
+              "allowedValues": [
+                "dev",
+                "prod",
+                "shared"
+              ],
+              "metadata": {
+                "description": "Environment short name."
+              }
+            },
+            "workload": {
+              "type": "string",
+              "allowedValues": [
+                "web",
+                "api",
+                "data",
+                "ai",
+                "obs",
+                "net",
+                "sec",
+                "gov"
+              ],
+              "metadata": {
+                "description": "Workload short name."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "swedencentral",
+              "allowedValues": [
+                "swedencentral",
+                "westeurope"
+              ],
+              "metadata": {
+                "description": "Azure region."
+              }
+            },
+            "instance": {
+              "type": "string",
+              "defaultValue": "001",
+              "minLength": 3,
+              "maxLength": 3,
+              "metadata": {
+                "description": "Three-digit instance counter, zero-padded."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Mandatory tags applied to all resources."
+              }
+            },
+            "serviceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the service to connect."
+              }
+            },
+            "serviceGroupId": {
+              "type": "string",
+              "metadata": {
+                "description": "Private Link subresource group ID (e.g. blob for Storage, vault for Key Vault)."
+              }
+            },
+            "subnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the subnet for the private endpoint."
+              }
+            },
+            "privateDnsZoneId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the Private DNS Zone to link."
+              }
+            },
+            "logAnalyticsWorkspaceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the shared Log Analytics workspace (reserved for future use — PEs do not support diagnostic settings)."
+              }
+            }
+          },
+          "variables": {
+            "orgPrefix": "nx",
+            "regionShort": "[if(equals(parameters('location'), 'swedencentral'), 'swc', 'weu')]",
+            "peName": "[format('{0}-{1}-data-{2}-pe-{3}', variables('orgPrefix'), parameters('environmentName'), variables('regionShort'), parameters('instance'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/privateEndpoints",
+              "apiVersion": "2024-05-01",
+              "name": "[variables('peName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "subnet": {
+                  "id": "[parameters('subnetId')]"
+                },
+                "privateLinkServiceConnections": [
+                  {
+                    "name": "[variables('peName')]",
+                    "properties": {
+                      "privateLinkServiceId": "[parameters('serviceId')]",
+                      "groupIds": [
+                        "[parameters('serviceGroupId')]"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', variables('peName'), 'default')]",
+              "properties": {
+                "privateDnsZoneConfigs": [
+                  {
+                    "name": "config1",
+                    "properties": {
+                      "privateDnsZoneId": "[parameters('privateDnsZoneId')]"
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateEndpoints', variables('peName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/privateEndpoints', variables('peName'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[variables('peName')]"
+            },
+            "customDnsConfigs": {
+              "type": "array",
+              "value": "[reference(resourceId('Microsoft.Network/privateEndpoints', variables('peName')), '2024-05-01').customDnsConfigs]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-prod-data-rg'), 'Microsoft.Resources/deployments', 'deploy-prod-sql')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "deploy-cosmos",
+      "resourceGroup": "nx-dev-data-rg",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "environmentName": {
+            "value": "shared"
+          },
+          "workload": {
+            "value": "data"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "instance": {
+            "value": "[parameters('instance')]"
+          },
+          "logAnalyticsWorkspaceId": {
+            "value": "[variables('logAnalyticsId')]"
+          },
+          "tags": {
+            "value": "[union(variables('sharedTags'), createObject('Environment', 'shared', 'Workload', 'data'))]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.1.21952",
+              "templateHash": "3618562942332781483"
+            }
+          },
+          "parameters": {
+            "environmentName": {
+              "type": "string",
+              "allowedValues": [
+                "dev",
+                "prod",
+                "shared"
+              ],
+              "metadata": {
+                "description": "Environment short name."
+              }
+            },
+            "workload": {
+              "type": "string",
+              "allowedValues": [
+                "web",
+                "api",
+                "data",
+                "ai",
+                "obs",
+                "net",
+                "sec",
+                "gov"
+              ],
+              "metadata": {
+                "description": "Workload short name."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "swedencentral",
+              "allowedValues": [
+                "swedencentral",
+                "westeurope"
+              ],
+              "metadata": {
+                "description": "Azure region."
+              }
+            },
+            "instance": {
+              "type": "string",
+              "defaultValue": "001",
+              "minLength": 3,
+              "maxLength": 3,
+              "metadata": {
+                "description": "Three-digit instance counter, zero-padded."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "metadata": {
+                "description": "Mandatory tags applied to all resources."
+              }
+            },
+            "logAnalyticsWorkspaceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource ID of the shared Log Analytics workspace."
+              }
+            }
+          },
+          "variables": {
+            "orgPrefix": "nx",
+            "regionShort": "[if(equals(parameters('location'), 'swedencentral'), 'swc', 'weu')]",
+            "accountName": "[format('{0}-{1}-{2}-{3}-cosmos-{4}', variables('orgPrefix'), parameters('environmentName'), parameters('workload'), variables('regionShort'), parameters('instance'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.DocumentDB/databaseAccounts",
+              "apiVersion": "2023-11-15",
+              "name": "[variables('accountName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "GlobalDocumentDB",
+              "properties": {
+                "databaseAccountOfferType": "Standard",
+                "enableFreeTier": true,
+                "locations": [
+                  {
+                    "locationName": "[parameters('location')]",
+                    "failoverPriority": 0,
+                    "isZoneRedundant": false
+                  }
+                ],
+                "consistencyPolicy": {
+                  "defaultConsistencyLevel": "Session"
+                },
+                "enableAnalyticalStorage": false,
+                "backupPolicy": {
+                  "type": "Continuous",
+                  "continuousModeProperties": {
+                    "tier": "Continuous7Days"
+                  }
+                },
+                "disableLocalAuth": false,
+                "publicNetworkAccess": "Enabled",
+                "ipRules": []
+              }
+            },
+            {
+              "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases",
+              "apiVersion": "2023-11-15",
+              "name": "[format('{0}/{1}', variables('accountName'), 'nordlux-catalog')]",
+              "properties": {
+                "resource": {
+                  "id": "nordlux-catalog"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('accountName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+              "apiVersion": "2023-11-15",
+              "name": "[format('{0}/{1}/{2}', variables('accountName'), 'nordlux-catalog', 'products')]",
+              "properties": {
+                "resource": {
+                  "id": "products",
+                  "partitionKey": {
+                    "paths": [
+                      "/categoryId"
+                    ],
+                    "kind": "Hash"
+                  },
+                  "indexingPolicy": {
+                    "indexingMode": "consistent",
+                    "automatic": true,
+                    "includedPaths": [
+                      {
+                        "path": "/*"
+                      }
+                    ],
+                    "excludedPaths": [
+                      {
+                        "path": "/\"_etag\"/?"
+                      }
+                    ]
+                  }
+                },
+                "options": {
+                  "throughput": 400
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', variables('accountName'), 'nordlux-catalog')]"
+              ]
+            },
+            {
+              "type": "Microsoft.Insights/diagnosticSettings",
+              "apiVersion": "2021-05-01-preview",
+              "scope": "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('accountName'))]",
+              "name": "[format('{0}-diag', variables('accountName'))]",
+              "properties": {
+                "workspaceId": "[parameters('logAnalyticsWorkspaceId')]",
+                "logs": [
+                  {
+                    "category": "DataPlaneRequests",
+                    "enabled": true
+                  },
+                  {
+                    "category": "QueryRuntimeStatistics",
+                    "enabled": true
+                  }
+                ],
+                "metrics": [
+                  {
+                    "category": "Requests",
+                    "enabled": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('accountName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.DocumentDB/databaseAccounts', variables('accountName'))]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[variables('accountName')]"
+            },
+            "endpoint": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', variables('accountName')), '2023-11-15').documentEndpoint]"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "devSaId": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-dev-data-rg'), 'Microsoft.Resources/deployments', 'deploy-dev-sa'), '2025-04-01').outputs.id.value]"
+    },
+    "devSaName": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-dev-data-rg'), 'Microsoft.Resources/deployments', 'deploy-dev-sa'), '2025-04-01').outputs.name.value]"
+    },
+    "devSaBlobEndpoint": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-dev-data-rg'), 'Microsoft.Resources/deployments', 'deploy-dev-sa'), '2025-04-01').outputs.primaryBlobEndpoint.value]"
+    },
+    "prodSaId": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-prod-data-rg'), 'Microsoft.Resources/deployments', 'deploy-prod-sa'), '2025-04-01').outputs.id.value]"
+    },
+    "prodSaName": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-prod-data-rg'), 'Microsoft.Resources/deployments', 'deploy-prod-sa'), '2025-04-01').outputs.name.value]"
+    },
+    "prodSaBlobEndpoint": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-prod-data-rg'), 'Microsoft.Resources/deployments', 'deploy-prod-sa'), '2025-04-01').outputs.primaryBlobEndpoint.value]"
+    },
+    "prodPeId": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-prod-data-rg'), 'Microsoft.Resources/deployments', 'deploy-prod-sa-pe'), '2025-04-01').outputs.id.value]"
+    },
+    "blobDnsZoneId": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-shared-net-rg'), 'Microsoft.Resources/deployments', 'deploy-dns-privatelink-blob-core-windows-net'), '2025-04-01').outputs.id.value]"
+    },
+    "devSqlServerId": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-dev-data-rg'), 'Microsoft.Resources/deployments', 'deploy-dev-sql'), '2025-04-01').outputs.serverId.value]"
+    },
+    "devSqlServerName": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-dev-data-rg'), 'Microsoft.Resources/deployments', 'deploy-dev-sql'), '2025-04-01').outputs.serverName.value]"
+    },
+    "devSqlServerFqdn": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-dev-data-rg'), 'Microsoft.Resources/deployments', 'deploy-dev-sql'), '2025-04-01').outputs.serverFqdn.value]"
+    },
+    "prodSqlServerId": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-prod-data-rg'), 'Microsoft.Resources/deployments', 'deploy-prod-sql'), '2025-04-01').outputs.serverId.value]"
+    },
+    "prodSqlServerName": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-prod-data-rg'), 'Microsoft.Resources/deployments', 'deploy-prod-sql'), '2025-04-01').outputs.serverName.value]"
+    },
+    "prodSqlServerFqdn": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-prod-data-rg'), 'Microsoft.Resources/deployments', 'deploy-prod-sql'), '2025-04-01').outputs.serverFqdn.value]"
+    },
+    "prodSqlPeId": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-prod-data-rg'), 'Microsoft.Resources/deployments', 'deploy-prod-sql-pe'), '2025-04-01').outputs.id.value]"
+    },
+    "cosmosId": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-dev-data-rg'), 'Microsoft.Resources/deployments', 'deploy-cosmos'), '2025-04-01').outputs.id.value]"
+    },
+    "cosmosName": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-dev-data-rg'), 'Microsoft.Resources/deployments', 'deploy-cosmos'), '2025-04-01').outputs.name.value]"
+    },
+    "cosmosEndpoint": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, 'nx-dev-data-rg'), 'Microsoft.Resources/deployments', 'deploy-cosmos'), '2025-04-01').outputs.endpoint.value]"
+    }
+  }
+}
