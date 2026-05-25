@@ -1,9 +1,10 @@
 // ============================================================================
 // Module: security/main
-// Purpose: Deploys dev and prod Key Vaults; prod Key Vault gets a Private Endpoint.
+// Purpose: Deploys Key Vaults (dev + prod) and WAF policy.
+//          Front Door skipped — blocked on Free Trial (see ADR 0009).
 // Owner: sam.lekkla@outlook.com
-// Last reviewed: 2026-05-24
-// Cost impact: ~$0.03/10k ops (Key Vault) + ~$7/mo (1 prod Private Endpoint)
+// Last reviewed: 2026-05-25
+// Cost impact: ~$0.03/10k ops (Key Vault) + ~$7/mo (1 prod PE)
 // ============================================================================
 
 targetScope = 'subscription'
@@ -28,18 +29,17 @@ param homeIpAddress string
 // ---------------------------------------------------------------------------
 var subId = subscription().subscriptionId
 
-// Cross-RG resource IDs — constructed to avoid runtime lookups
 var logAnalyticsId = '/subscriptions/${subId}/resourceGroups/nx-shared-obs-rg/providers/Microsoft.OperationalInsights/workspaces/nx-shared-obs-swc-log-001'
 var snetPeId       = '/subscriptions/${subId}/resourceGroups/nx-prod-net-rg/providers/Microsoft.Network/virtualNetworks/nx-prod-net-swc-vnet-001/subnets/snet-pe'
 var kvDnsZoneId    = '/subscriptions/${subId}/resourceGroups/nx-shared-net-rg/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net'
 
 var sharedTags = {
   CostCenter: 'aurora-portfolio'
-  Owner: ownerEmail
+  Owner:      ownerEmail
 }
 
 // ---------------------------------------------------------------------------
-// Existing resource groups (created by identity/main.bicep)
+// Existing resource groups
 // ---------------------------------------------------------------------------
 resource devSecRg 'Microsoft.Resources/resourceGroups@2024-03-01' existing = {
   name: 'nx-dev-sec-rg'
@@ -53,15 +53,15 @@ resource prodSecRg 'Microsoft.Resources/resourceGroups@2024-03-01' existing = {
 // Dev Key Vault — public access, home IP firewall only
 // ---------------------------------------------------------------------------
 module devKv 'modules/keyvault.bicep' = {
-  name: 'deploy-dev-kv'
+  name:  'deploy-dev-kv'
   scope: devSecRg
   params: {
-    environmentName: 'dev'
-    workload: 'sec'
-    location: location
-    instance: instance
-    publicNetworkAccess: 'Enabled'
-    allowedIpAddress: homeIpAddress
+    environmentName:         'dev'
+    workload:                'sec'
+    location:                location
+    instance:                instance
+    publicNetworkAccess:     'Enabled'
+    allowedIpAddress:        homeIpAddress
     logAnalyticsWorkspaceId: logAnalyticsId
     tags: union(sharedTags, { Environment: 'dev', Workload: 'sec' })
   }
@@ -71,15 +71,15 @@ module devKv 'modules/keyvault.bicep' = {
 // Prod Key Vault — no public access, Private Endpoint only
 // ---------------------------------------------------------------------------
 module prodKv 'modules/keyvault.bicep' = {
-  name: 'deploy-prod-kv'
+  name:  'deploy-prod-kv'
   scope: prodSecRg
   params: {
-    environmentName: 'prod'
-    workload: 'sec'
-    location: location
-    instance: instance
-    publicNetworkAccess: 'Disabled'
-    allowedIpAddress: ''
+    environmentName:         'prod'
+    workload:                'sec'
+    location:                location
+    instance:                instance
+    publicNetworkAccess:     'Disabled'
+    allowedIpAddress:        ''
     logAnalyticsWorkspaceId: logAnalyticsId
     tags: union(sharedTags, { Environment: 'prod', Workload: 'sec' })
   }
@@ -89,28 +89,46 @@ module prodKv 'modules/keyvault.bicep' = {
 // Private Endpoint for prod Key Vault — placed in snet-pe (nx-prod-net-rg)
 // ---------------------------------------------------------------------------
 module prodKvPe 'modules/private-endpoint.bicep' = {
-  name: 'deploy-prod-kv-pe'
+  name:  'deploy-prod-kv-pe'
   scope: prodSecRg
   params: {
-    environmentName: 'prod'
-    workload: 'sec'
-    location: location
-    instance: instance
-    serviceId: prodKv.outputs.id
-    serviceGroupId: 'vault'
-    subnetId: snetPeId
-    privateDnsZoneId: kvDnsZoneId
+    environmentName:         'prod'
+    workload:                'sec'
+    location:                location
+    instance:                instance
+    serviceId:               prodKv.outputs.id
+    serviceGroupId:          'vault'
+    subnetId:                snetPeId
+    privateDnsZoneId:        kvDnsZoneId
     logAnalyticsWorkspaceId: logAnalyticsId
     tags: union(sharedTags, { Environment: 'prod', Workload: 'sec' })
   }
 }
 
 // ---------------------------------------------------------------------------
-// Outputs — IDs and URIs only; no secrets or connection strings
+// WAF policy — prod only; DRS 2.1 + Bot Manager 1.0, Prevention mode
 // ---------------------------------------------------------------------------
-output devKvId   string = devKv.outputs.id
-output devKvName string = devKv.outputs.name
-output prodKvId   string = prodKv.outputs.id
-output prodKvName string = prodKv.outputs.name
-output prodKvUri  string = prodKv.outputs.uri
-output prodPeId   string = prodKvPe.outputs.id
+module wafPolicy 'modules/waf-policy.bicep' = {
+  name:  'deploy-prod-wafp'
+  scope: prodSecRg
+  params: {
+    environmentName:         'prod'
+    workload:                'sec'
+    location:                location
+    instance:                instance
+    logAnalyticsWorkspaceId: logAnalyticsId
+    tags: union(sharedTags, { Environment: 'prod', Workload: 'sec' })
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Outputs — IDs and hostnames only; no secrets or connection strings
+// ---------------------------------------------------------------------------
+output devKvId     string = devKv.outputs.id
+output devKvName   string = devKv.outputs.name
+output prodKvId    string = prodKv.outputs.id
+output prodKvName  string = prodKv.outputs.name
+output prodKvUri   string = prodKv.outputs.uri
+output prodPeId    string = prodKvPe.outputs.id
+output wafPolicyId string = wafPolicy.outputs.id
+output wafPolicyName string = wafPolicy.outputs.name
