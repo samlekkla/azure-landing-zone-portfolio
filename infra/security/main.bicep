@@ -1,7 +1,7 @@
 // ============================================================================
 // Module: security/main
-// Purpose: Deploys Key Vaults (dev + prod) and WAF policy.
-//          Front Door skipped — blocked on Free Trial (see ADR 0009).
+// Purpose: Deploys dev Key Vault, prod Key Vault, and prod Key Vault PE.
+//          Front Door + WAF skipped — blocked on Free Trial (see ADR 0009/0010).
 // Owner: sam.lekkla@outlook.com
 // Last reviewed: 2026-05-25
 // Cost impact: ~$0.03/10k ops (Key Vault) + ~$7/mo (1 prod PE)
@@ -106,29 +106,11 @@ module prodKvPe 'modules/private-endpoint.bicep' = {
 }
 
 // ---------------------------------------------------------------------------
-// WAF policy — prod only; DRS 2.1 + Bot Manager 1.0, Prevention mode
-// ---------------------------------------------------------------------------
-module wafPolicy 'modules/waf-policy.bicep' = {
-  name:  'deploy-prod-wafp'
-  scope: prodSecRg
-  params: {
-    environmentName:         'prod'
-    workload:                'sec'
-    location:                location
-    instance:                instance
-    logAnalyticsWorkspaceId: logAnalyticsId
-    tags: union(sharedTags, { Environment: 'prod', Workload: 'sec' })
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Outputs — IDs and hostnames only; no secrets or connection strings
 // ---------------------------------------------------------------------------
-output devKvId     string = devKv.outputs.id
-output devKvName   string = devKv.outputs.name
-output prodKvId    string = prodKv.outputs.id
-output prodKvName  string = prodKv.outputs.name
-output prodKvUri   string = prodKv.outputs.uri
-output prodPeId    string = prodKvPe.outputs.id
-output wafPolicyId string = wafPolicy.outputs.id
-output wafPolicyName string = wafPolicy.outputs.name
+output devKvId   string = devKv.outputs.id
+output devKvName string = devKv.outputs.name
+output prodKvId  string = prodKv.outputs.id
+output prodKvName string = prodKv.outputs.name
+output prodKvUri string = prodKv.outputs.uri
+output prodPeId  string = prodKvPe.outputs.id
