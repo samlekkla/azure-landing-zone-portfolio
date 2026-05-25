@@ -24,66 +24,21 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Bicep what-if — network
-        run: |
-          az deployment sub what-if \
-            --location swedencentral \
-            --template-file infra/network/main.bicep \
-            --parameters infra/network/prod.bicepparam
-
-      - name: Bicep deploy — network
-        run: |
-          az deployment sub create \
-            --location swedencentral \
-            --template-file infra/network/main.bicep \
-            --parameters infra/network/prod.bicepparam
-
-      - name: Bicep what-if — security
-        run: |
-          az deployment sub what-if \
-            --location swedencentral \
-            --template-file infra/security/main.bicep \
-            --parameters \
-              ownerEmail='sam.lekkla@outlook.com' \
-              homeIpAddress='${{ secrets.HOME_IP_ADDRESS }}'
-
-      - name: Bicep deploy — security
+      - name: Deploy security stack
         run: |
           az deployment sub create \
             --location swedencentral \
             --template-file infra/security/main.bicep \
-            --parameters \
-              ownerEmail='sam.lekkla@outlook.com' \
-              homeIpAddress='${{ secrets.HOME_IP_ADDRESS }}'
+            --parameters homeIpAddress='213.113.55.73' ownerEmail='sam.lekkla@outlook.com'
 
-      - name: Bicep what-if — data
-        run: |
-          az deployment sub what-if \
-            --location swedencentral \
-            --template-file infra/data/main.bicep \
-            --parameters \
-              ownerEmail='sam.lekkla@outlook.com' \
-              homeIpAddress='${{ secrets.HOME_IP_ADDRESS }}' \
-              azureAdAdminObjectId='${{ secrets.AZURE_AD_ADMIN_OBJECT_ID }}'
-
-      - name: Bicep deploy — data
+      - name: Deploy data stack
         run: |
           az deployment sub create \
             --location swedencentral \
             --template-file infra/data/main.bicep \
-            --parameters \
-              ownerEmail='sam.lekkla@outlook.com' \
-              homeIpAddress='${{ secrets.HOME_IP_ADDRESS }}' \
-              azureAdAdminObjectId='${{ secrets.AZURE_AD_ADMIN_OBJECT_ID }}'
+            --parameters homeIpAddress='213.113.55.73' ownerEmail='sam.lekkla@outlook.com' azureAdAdminObjectId='ebeccde8-abfd-4435-b329-f32df950d17c'
 
-      - name: Bicep what-if — compute
-        run: |
-          az deployment sub what-if \
-            --location swedencentral \
-            --template-file infra/compute/main.bicep \
-            --parameters ownerEmail='sam.lekkla@outlook.com'
-
-      - name: Bicep deploy — compute
+      - name: Deploy compute stack
         run: |
           az deployment sub create \
             --location swedencentral \
