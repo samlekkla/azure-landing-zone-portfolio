@@ -37,3 +37,55 @@ jobs:
             --location swedencentral \
             --template-file infra/network/main.bicep \
             --parameters infra/network/prod.bicepparam
+
+      - name: Bicep what-if — security
+        run: |
+          az deployment sub what-if \
+            --location swedencentral \
+            --template-file infra/security/main.bicep \
+            --parameters \
+              ownerEmail='sam.lekkla@outlook.com' \
+              homeIpAddress='${{ secrets.HOME_IP_ADDRESS }}'
+
+      - name: Bicep deploy — security
+        run: |
+          az deployment sub create \
+            --location swedencentral \
+            --template-file infra/security/main.bicep \
+            --parameters \
+              ownerEmail='sam.lekkla@outlook.com' \
+              homeIpAddress='${{ secrets.HOME_IP_ADDRESS }}'
+
+      - name: Bicep what-if — data
+        run: |
+          az deployment sub what-if \
+            --location swedencentral \
+            --template-file infra/data/main.bicep \
+            --parameters \
+              ownerEmail='sam.lekkla@outlook.com' \
+              homeIpAddress='${{ secrets.HOME_IP_ADDRESS }}' \
+              azureAdAdminObjectId='${{ secrets.AZURE_AD_ADMIN_OBJECT_ID }}'
+
+      - name: Bicep deploy — data
+        run: |
+          az deployment sub create \
+            --location swedencentral \
+            --template-file infra/data/main.bicep \
+            --parameters \
+              ownerEmail='sam.lekkla@outlook.com' \
+              homeIpAddress='${{ secrets.HOME_IP_ADDRESS }}' \
+              azureAdAdminObjectId='${{ secrets.AZURE_AD_ADMIN_OBJECT_ID }}'
+
+      - name: Bicep what-if — compute
+        run: |
+          az deployment sub what-if \
+            --location swedencentral \
+            --template-file infra/compute/main.bicep \
+            --parameters ownerEmail='sam.lekkla@outlook.com'
+
+      - name: Bicep deploy — compute
+        run: |
+          az deployment sub create \
+            --location swedencentral \
+            --template-file infra/compute/main.bicep \
+            --parameters ownerEmail='sam.lekkla@outlook.com'
